@@ -1,37 +1,36 @@
-import OpenAI from "openai";
 import { PostModal } from "../Models/postSchema";
 import dotenv from "dotenv";
 dotenv.config();
+import { pipeline } from '@xenova/transformers';
 
+export class PostRepository {
+    static embedder: ((text: string) => Promise<number[][]>) | null = null;
 
-
-export  class PostRepository {
-    static async CreatePost (title: string , description: string) {
-        try {
-
-        const response = await fetch("https://api.groq.com/openai/v1/embeddings", {
-        method: "POST",
-        headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${process.env.GROQ_KEY}`
-        },
-        body: JSON.stringify({
-            model: "embedding-text-3-small",
-            input: description
-        })
-        });
-
-        const data = await response.json();
-        // const embeddingVector = data.data[0].embedding;
-
-    //   const post = (await PostModal.create({ title, description,embeddings:embeddingVector})).save();
-    //   return post;
-
-    console.log(data);
-    
-    } catch (err) {
-      console.error("Error creating post:", err);
-      throw err;
+    static async initModel() {
+        if (!this.embedder) {
+            const pipe = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2');
+            this.embedder = async (text: string) => {
+                const output = await pipe(text, { pooling: 'mean', normalize: true });
+                return output.tolist();
+            };
+        }
     }
+
+    static async CreatePost(title: string, description: string) {
+        try {
+            await this.initModel();
+            const [embeddingVector] = await this.embedder!(description);
+
+            const post = await PostModal.create({
+                title,
+                description,
+                embeddings: embeddingVector
+            });
+
+            return post;
+        } catch (err) {
+            console.error("Error creating post:", err);
+            throw err;
+        }
     }
 }
